@@ -1,0 +1,179 @@
+#include <WiFi.h>
+#include <SPI.h>
+#include <Wire.h>
+#include "RTClib.h"
+#include <SD.h>
+#include <WiFi.h>
+#include <WiFiManager.h>
+#include <FirebaseESP32.h>
+#define FIREBASE_HOST "https://suraj-project-88bc7-default-rtdb.asia-southeast1.firebasedatabase.app"
+#define FIREBASE_AUTH "AIzaSyAiFmLr3MneY6SZbr47QjwE40rgjzgfn0k"
+
+
+
+//Define FirebaseESP32 data object
+FirebaseData firebaseData;
+FirebaseJson json;
+int Vresistor = A0;
+int Vrdata = 0;
+
+RTC_DS3231 rtc;
+char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
+File myFile;
+const int CS = 5;
+
+void setup()
+{
+  Serial.begin(9600);
+  
+  // Connect to Wi-Fi using WiFiManager
+  WiFiManager wifiManager;
+  wifiManager.autoConnect("AutoConnectAP");
+
+  // Initialize RTC
+  if (!rtc.begin())
+  {
+    Serial.println("Couldn't find RTC");
+    while (1);
+  }
+
+  // Set the time if RTC lost power
+  if (rtc.lostPower())
+  {
+    Serial.println("RTC lost power! Setting up time...");
+    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+  }
+
+  Serial.println("Initializing SD card...");
+  if (!SD.begin(CS))
+  {
+    Serial.println("SD card initialization failed!");
+    while (1);
+  }
+  Serial.println("SD card initialized.");
+
+  
+  pinMode(Vresistor, INPUT);
+
+
+  WiFi.begin();
+  Serial.print("Connecting to Wi-Fi");
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    Serial.print(".");
+    delay(300);
+  }
+  Serial.println();
+  Serial.print("Connected with IP: ");
+  Serial.println(WiFi.localIP());
+  Serial.println();
+
+  Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
+  Firebase.reconnectWiFi(true);
+
+  //Set database read timeout to 1 minute (max 15 minutes)
+  Firebase.setReadTimeout(firebaseData, 1000 * 60);
+  //tiny, small, medium, large and unlimited.
+  //Size and its write timeout e.g. tiny (1s), small (10s), medium (30s) and large (60s).
+  Firebase.setwriteSizeLimit(firebaseData, "tiny");
+
+  /*
+    This option allows get and delete functions (PUT and DELETE HTTP requests) works for device connected behind the
+    Firewall that allows only GET and POST requests.
+
+    Firebase.enableClassicRequest(firebaseData, true);
+  */
+
+  //String path = "/data";
+
+
+  Serial.println("------------------------------------");
+  Serial.println("Connected...");
+}
+
+void loop()
+{
+  DateTime now = rtc.now();
+  Serial.print(now.hour(), DEC);
+  Serial.print(":");
+  Serial.print(now.minute(), DEC);
+  Serial.print(":");
+  Serial.print(now.second(), DEC);
+  Serial.print(" ");
+
+  Serial.print(now.day(), DEC);
+  Serial.print(":");
+  Serial.print(now.month(), DEC);
+  Serial.print(":");
+  Serial.print(now.year(), DEC);
+  Serial.print("  ");
+
+  Serial.println(daysOfTheWeek[now.dayOfTheWeek()]);
+  delay(1000);
+
+  // Generate timestamp and random data
+  char timestamp[25];
+  sprintf(timestamp, "%02d:%02d:%02d %02d:%02d:%02d", now.day(), now.month(), now.year(), now.hour(), now.minute(), now.second());
+  int randomData = random(100);
+
+  // Create message with timestamp and data
+  char message[50];
+  sprintf(message, "%s - Data: %d", timestamp, randomData);
+
+  // Write message to file
+  AppendFile("/test.txt", message);
+  delay(100);
+
+  // Read and print file contents
+  ReadFile("/test.txt");
+
+  int Sdata = random(0, 1023) ;
+  Serial.println(Sdata);
+  delay(100);
+  json.set("/one",message);
+  json.set("/two", Sdata);
+  json.set("/three", Sdata);
+  delay(1000);
+
+  Firebase.updateNode(firebaseData, "/Weight", json);
+
+  delay(1000);
+}
+
+void AppendFile(const char *path, const char *message)
+{
+  myFile = SD.open(path, FILE_APPEND);
+  if (myFile)
+  {
+    Serial.printf("Appending to %s ", path);
+    myFile.println(message);
+    myFile.close();
+    Serial.println("completed.");
+  }
+  else
+  {
+    Serial.println("error opening file ");
+    Serial.println(path);
+  }
+}
+
+void ReadFile(const char *path)
+{
+  myFile = SD.open(path);
+  if (myFile)
+  {
+    Serial.printf("Reading file from %s\n", path);
+    while (myFile.available())
+    {
+      Serial.write(myFile.read());
+    }
+    myFile.close();
+  }
+  else
+  {
+    Serial.println("error opening file");
+  }
+}
+
+
+
